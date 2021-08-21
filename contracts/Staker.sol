@@ -18,59 +18,64 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  */
 contract Staker is Ownable {
     // start, end and amount of tokens to relase over that period (Emission Era)
-    uint public durationInBlocks;
-    uint public startBlock; // when admin initiates rewards
-    uint public endBlock;   // will be calculated
+    uint public durationInDays;
+    uint public startTime;          // when 1st stake is made
+    uint public endTime;            // will be calculated
     uint public releaseAmount;
     IERC20 public LPtoken;
     IERC20 public ETBtoken;
 
     enum EmissionStates { NOT_STARTED, INITIALIZED, ERA_ACTIVE, ERA_ENDED }
-    EmissionStates emissionStatus = EmissionStates.ERA_ENDED;
+    EmissionStates emissionStatus = EmissionStates.NOT_STARTED;
+
+    uint public rewardInterval = 24 hours; // reward calculations will not be per block but per block interval
 
     // STAKING STATUS:
-    uint public lastCheckPt; // latest block where staked amount changed
-    uint public totalStaked; // current total staked amount
+    uint public lastCheckPt;        // the last time staked amount changed
+    uint public totalStaked;        // latest total staked in contract
+    uint public tokensClaimed;      // total number of reward tokens claimed since staking genisis
     struct CheckPoint {
-        uint blocknumber;
-        uint totalStaked;
+        uint blocktime;             // block time at START of new reward interval
+        int stakeChange;            // NB: Not uint! cumulative stake/unstake for relevant reward interval
     }
-    CheckPoint[] public checkPtRecord; // keeps track of evolution of checkpoint details
-    uint public tokensClaimed; // total number of reward tokens claimed since staking genisis
+    CheckPoint[] public checkPtRecord; // keeps track of evolution of checkpoints, one per reward interval
 
-    // USER STATUS: keep track of each user's stake amount change, with block number
-    struct UsrChkPt { uint mainChkPtIndex; uint stakeAmt; } // user stake amount track record [mainChkPtIndex] -> array index of (staking status) CheckPoint[]
+    // USER STATUS: keep track of each user's stake amount change, with block time
+    struct UsrChkPt {
+        uint mainChkPtIndex;        // index of main CheckPoint[] array where change happened
+        int stakeChange;            // NB: Not uint! amount (un)staked
+    }
     struct UserState { 
         UsrChkPt[] userRecord;      // track record of all stake changes (stake & unstake)
-        uint idxOfLastClaim;        // main CheckPoint[] array index where latest total reward was calculated
-        uint latestTotalReward;     // total reward calculated at full or partial unstake (use fraction of this for partial unstake)
-        uint latestRemainingReward; // remainder of reward left if last claim was partial claim
+        uint idxOfLastClaim;        // index of main CheckPoint[] array where latest reward was calculated: prevents iterating from start every time
+        uint latestRemainingReward; // remainder of accumulated reward left if last claim was partial claim: prevents iterating from start every time
     }
     mapping( address => UserState ) public stateOfUsers; // -> use this mapping to iterate over [checkPtRecord] to calc stake reward (and optionally update latest total stake reward)
 
     // EVENTS:
-    event EmissionStarted(uint indexed startBlock, uint endBlock, uint releaseAmount);
+    event EmissionStarted(uint indexed startTime, uint endTime, uint releaseAmount);
 
     // -----------------------------
     //      MAIN CONTRACT BODY:
     // -----------------------------
-    constructor (address _lpTokenETB, address _ETBtoken) {
+    constructor (address _lpTokenETB, address _ETBtoken, uint rewardInterval_hours) {
         LPtoken = IERC20(_lpTokenETB);
         ETBtoken = IERC20(_ETBtoken);
+        if(rewardInterval_hours != 0) rewardInterval = rewardInterval_hours;
     }
 
     // create a new Emission Era - only owner
     // owner must have enough tokens to fund _releaseAmount
     function createEra(uint _durationInBlocks, uint _releaseAmount) external onlyOwner {
-        require(emissionStatus == EmissionStates.ERA_ENDED, "Staker#createEra: Emission Era currently in progress");
+        require(emissionStatus == EmissionStates.NOT_STARTED || emissionStatus == EmissionStates.ERA_ENDED, "Staker#createEra: Emission Era currently in progress");
         require(_releaseAmount > 0, "Staker#createEra: Release amount cannot be zero");
         require(_durationInBlocks > 0, "Staker#createEra: Block duration cannot be zero");
         bool txSuccess = ETBtoken.transferFrom(msg.sender, address(this), _releaseAmount);
         require(txSuccess, "Staker#createEra: ETB token transfer failed");
 
-        durationInBlocks = _durationInBlocks;
-        releaseAmount = _releaseAmount;
-        emissionStatus = EmissionStates.INITIALIZED;
+        // durationInBlocks = _durationInBlocks;
+        // releaseAmount = _releaseAmount;
+        // emissionStatus = EmissionStates.INITIALIZED;
     }
 
     // Users stake (deposit) ETB LP tokens
@@ -80,23 +85,23 @@ contract Staker is Ownable {
         bool txSuccess = LPtoken.transferFrom(msg.sender, address(this), _LPamount);
         require(txSuccess, "Staker#stake: ETB token transfer failed");
 
-        // 1st staker starts the emitting process (prevents [reward / 0] later in logic)
+        // 1st staker starts the emission process (prevents [reward / 0] later in logic)
         if(emissionStatus == EmissionStates.INITIALIZED) {
             emissionStatus == EmissionStates.ERA_ACTIVE;
-            startBlock = block.number;
-            endBlock = startBlock + durationInBlocks;
+            // startBlock = block.number;
+            // endBlock = startBlock + durationInBlocks;
 
-            emit EmissionStarted(startBlock, endBlock, releaseAmount);
+            // emit EmissionStarted(startBlock, endBlock, releaseAmount);
         }
         
-        // staking state update
-        totalStaked += _LPamount;
-        CheckPoint memory chkPt = CheckPoint(block.number, totalStaked);
-        checkPtRecord.push(chkPt);
+        // // staking state update
+        // totalStaked += _LPamount;
+        // CheckPoint memory chkPt = CheckPoint(block.number, totalStaked);
+        // checkPtRecord.push(chkPt);
 
-        // user state update
-        UsrChkPt memory usrChkPt = UsrChkPt((checkPtRecord.length - 1), _LPamount);
-        stateOfUsers[msg.sender].userRecord.push(usrChkPt);
+        // // user state update
+        // UsrChkPt memory usrChkPt = UsrChkPt((checkPtRecord.length - 1), _LPamount);
+        // stateOfUsers[msg.sender].userRecord.push(usrChkPt);
     }
 
     // OPTIONAL? user claim (only rewards) -> @ least internal either way
