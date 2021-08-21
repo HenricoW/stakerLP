@@ -36,14 +36,14 @@ contract Staker is Ownable {
     uint public tokensClaimed;      // total number of reward tokens claimed since staking genisis
     struct CheckPoint {
         uint blocktime;             // block time at START of new reward interval
-        int stakeChange;            // NB: Not uint! cumulative stake/unstake for relevant reward interval
+        uint totalStaked;           // cumulative stake as at this reward interval
     }
     CheckPoint[] public checkPtRecord; // keeps track of evolution of checkpoints, one per reward interval
 
     // USER STATUS: keep track of each user's stake amount change, with block time
     struct UsrChkPt {
         uint mainChkPtIndex;        // index of main CheckPoint[] array where change happened
-        int stakeChange;            // NB: Not uint! amount (un)staked
+        uint totUsrStake;           // cumulative user stake as at this check point
     }
     struct UserState { 
         UsrChkPt[] userRecord;      // track record of all stake changes (stake & unstake)
