@@ -127,6 +127,7 @@ contract Staker is Ownable {
             intervalStart += noOfIntervals * rewardInterval;                            // works even if done a few hours/days after last interval
         }
 
+        // UPDATE MAIN CHECK POINT STATE
         totalStaked += _LPamount;
 
         // USER STATE UPDATE
@@ -145,16 +146,14 @@ contract Staker is Ownable {
      * @param amountLP The amount of LP tokens (not ETB tokens) to unstake
      */
     function unStake(uint amountLP) external {              // add reentrancy guard
-        // check emission status
-        require(emissionStatus == EmissionStates.ERA_ACTIVE, "Staker#unstake: Emission Era not active");
-        // check if staker
         UserState memory usrState = stateOfUsers[msg.sender];
         UsrChkPt[] memory userRecord = usrState.userRecord;
-        require(userRecord.length > 0, "Staker#unstake: Invalid claim. No stake record");
-        // check if amount < staked amount
         UsrChkPt memory usrChkPtLatest = userRecord[userRecord.length - 1];
         uint stakeAmount = usrChkPtLatest.totUsrStake;
-        require(stakeAmount > amountLP, "Staker#unstake: Request amount > balance");
+
+        require(emissionStatus == EmissionStates.ERA_ACTIVE, "Staker#unstake: Emission Era not active"); // check emission status
+        require(userRecord.length > 0, "Staker#unstake: Invalid claim. No stake record"); // check if staker
+        require(stakeAmount > amountLP, "Staker#unstake: Request amount > balance");    // check if amount < staked amount
 
         // make sure intervals are up to date
         if(block.timestamp > (intervalStart + rewardInterval)) {
@@ -167,32 +166,38 @@ contract Staker is Ownable {
             intervalStart += noOfIntervals * rewardInterval;                            // works even if done a few hours/days after last interval
         }
 
-        uint endIdx = checkPtRecord.length - 1;                                        // index of latest completed interval
+        // UPDATE MAIN CHECK POINT STATE
+        totalStaked -= amountLP;
 
-        // user's latest claim index
-        uint startIdxUsr = usrState.idxOfLastClaim_Usr;
-        uint accReward = usrState.latestRemainingReward;                // could be > 0 if stake & unstake both in 1st interval
+        uint endIdx = checkPtRecord.length - 1;                                         // index of latest completed interval
+        uint startIdxUsr = usrState.idxOfLastClaim_Usr;                                 // user's latest claim index
+        uint accReward = usrState.latestRemainingReward;                                // could be > 0 if stake & unstake both in 1st interval
+
+        // loop variables
+        uint mainStart; uint mainEnd; uint usrStake; uint totStaked; uint noIntervals;
 
         // reward loop: loop over user checkpoints, use params for inner loop over main checkpoints
         for(uint i = startIdxUsr + 1; i < userRecord.length; i++) {
-            uint mainStart = userRecord[i - 1].mainChkPtIndex;                         // eg.: userRec[6] -> chkPtRec[45]
-            uint mainEnd = userRecord.length > 1 ? userRecord[i].mainChkPtIndex : endIdx; // eg.: userRec[7] -> chkPtRec[83]
+            mainStart = userRecord[i - 1].mainChkPtIndex;                               // eg.: userRec[6] -> chkPtRec[45]
+            mainEnd = userRecord.length > 1 ? userRecord[i].mainChkPtIndex : endIdx;    // eg.: userRec[7] -> chkPtRec[83]
 
-            uint usrStake = userRecord[i - 1].totUsrStake;
+            usrStake = userRecord[i - 1].totUsrStake;
 
             for(uint j = mainStart; j < mainEnd; j++) {
-                uint totStaked = checkPtRecord[j].totalStaked;
-                uint noIntervals = checkPtRecord[j].intervalsToNext;
+                totStaked = checkPtRecord[j].totalStaked;
+                noIntervals = checkPtRecord[j].intervalsToNext;
 
                 accReward += intervalReward * (usrStake / totStaked) * noIntervals;
             }
         }
 
         // USER STATE UPDATE
-        // push new user check point
         stateOfUsers[msg.sender].idxOfLastClaim_Usr = userRecord.length - 1;
-        uint rewardAmount = accReward * amountLP / usrChkPtLatest.totUsrStake;
+        uint rewardAmount = accReward * amountLP / stakeAmount;
         stateOfUsers[msg.sender].latestRemainingReward = accReward - rewardAmount;
+        // push new user check point
+        UsrChkPt memory usrChkPt = UsrChkPt(endIdx, stakeAmount - amountLP);
+        stateOfUsers[msg.sender].userRecord.push(usrChkPt);
 
         // transfer reward
         bool result = ETBtoken.transfer(msg.sender, rewardAmount);
@@ -200,6 +205,6 @@ contract Staker is Ownable {
         // transfer stake LP tokens
         bool txResult = LPtoken.transfer(msg.sender, amountLP);
         require(txResult, "Staker#unstake: LP token transfer failed");
-     }
+    }
 
 }
