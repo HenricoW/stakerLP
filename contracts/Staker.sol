@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0;
+pragma solidity >=0.8.4;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -7,14 +7,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /*  
  * The Staker contract controls the emission of ETB tokens as staking reward. 
  * Method:
- * The rewards are not claimed/sent with every new deposit. Instead, a user's 
- * rewards are only sent when a user claims/unstakes.
+ * A user's rewards are only sent when a user claims/unstakes.
  * To keep rewards proportional and maintain the emission rate, we keep track of 
- * the total stake and the time that this amount changes. Upon claiming or 
- * unstaking, the user's total stake is calculated and sent.
- * Option (using this way): reward only claimed when unstaking
- * Option: reward can be claimed without unstaking -> will need to update start 
- * start of staking block
+ * the total stake and the time that this amount changes. Upon unstaking,
+ * the user's total/partial stake is calculated and sent along with the 
+ * proportioned reward.
  */
 contract Staker is Ownable {
     uint public eraDuration;
@@ -27,11 +24,10 @@ contract Staker is Ownable {
     enum EmissionStates { NOT_STARTED, INITIALIZED, ERA_ACTIVE, ERA_ENDED }
     EmissionStates emissionStatus = EmissionStates.NOT_STARTED;
 
-    uint public rewardInterval = 24 hours; // reward calculations will not be per block but per block interval
+    uint public rewardInterval = 24 hours; // reward calculations will not be per block but per interval
     uint public intervalReward;
 
     // STAKING STATE:
-    uint public lastCheckPt;        // the last time staked amount changed
     uint public totalStaked;        // latest total staked in contract
     uint public tokensClaimed;      // total number of reward tokens claimed since staking genisis
     uint public intervalStart;      // start time of current interval
@@ -39,7 +35,7 @@ contract Staker is Ownable {
     struct CheckPoint {
         uint blocktime;             // block time at START of new reward interval
         uint totalStaked;           // cumulative stake as at this reward interval
-        uint intervalsToNext;       // number of intervals to the next check point: for long periods of inactivity
+        uint intervalsToNext;       // number of intervals to the next check point: in case of long periods of inactivity
     }
     CheckPoint[] public checkPtRecord; // keeps track of evolution of checkpoints, one per reward interval
 
@@ -59,6 +55,15 @@ contract Staker is Ownable {
     // EVENTS:
     event EmissionStarted(uint indexed startTime, uint endTime, uint releaseAmount);
 
+    // MODIFIERS:
+    bool private entered = false;
+    modifier noReentry() {
+        require(entered == false, "No Reentry");
+        entered = true;
+        _;
+        entered = false;
+    }
+
     // -----------------------------
     //      MAIN CONTRACT BODY:
     // -----------------------------
@@ -75,15 +80,15 @@ contract Staker is Ownable {
      * @param _durationInDays Specify number of days over which [_releaseAmount] should be released
      * @param rewardInterval_hours Set to 0 to have default of 24 hrs
      */
-    function createEra(uint _durationInDays, uint _releaseAmount, uint rewardInterval_hours) external onlyOwner {
+    function createEra(uint _durationInDays, uint _releaseAmount, uint rewardInterval_hours) external onlyOwner() {
         require(emissionStatus == EmissionStates.NOT_STARTED || emissionStatus == EmissionStates.ERA_ENDED, "Staker#createEra: Emission Era currently in progress");
         require(_durationInDays > 1, "Staker#createEra: Block duration must be greater than 1 day");
         if(rewardInterval_hours > 24) {
             revert("Staker#createEra: Reward interval must be < 1 day");
         } else if(rewardInterval_hours > 0 && 24 % rewardInterval_hours != 0) {
-            revert("Staker#createEra: Reward interval must wholly divide into 24"); // NB: One of: 1, 2, 3, 4, 8, 12
+            revert("Staker#createEra: Reward interval must wholly divide into 24");     // NB: One of: 1, 2, 3, 4, 8, 12
         } else if(rewardInterval_hours != 0) {
-            rewardInterval = rewardInterval_hours * 1 hours;                        // if rewardInterval_hours = 0, then it remains on the default value
+            rewardInterval = rewardInterval_hours * 1 hours;                            // if rewardInterval_hours = 0, then it remains on the default value
         }
 
         bool txSuccess = ETBtoken.transferFrom(msg.sender, address(this), _releaseAmount);
@@ -117,15 +122,7 @@ contract Staker is Ownable {
         }
         
         // make sure intervals are up to date
-        if(block.timestamp > (intervalStart + rewardInterval)) {
-            // add the latest state of the last interval as a check point
-            uint noOfIntervals = (block.timestamp - intervalStart) / rewardInterval;    // no of intervals since last check point
-            CheckPoint memory newChkPt = CheckPoint(intervalStart, totalStaked, noOfIntervals);
-            checkPtRecord.push(newChkPt);
-
-            // set params for new interval
-            intervalStart += noOfIntervals * rewardInterval;                            // works even if done a few hours/days after last interval
-        }
+        _updateIntervals();
 
         // UPDATE MAIN CHECK POINT STATE
         totalStaked += _LPamount;
@@ -140,44 +137,44 @@ contract Staker is Ownable {
         stateOfUsers[msg.sender].userRecord.push(usrChkPt);
     }
 
-    // user unstake (withdraw & claim)
+    function _updateIntervals() internal {
+        if(block.timestamp > (intervalStart + rewardInterval)) {
+            // add the latest state of the last interval as a check point
+            uint noOfIntervals = (block.timestamp - intervalStart) / rewardInterval;    // no of intervals since last check point
+            CheckPoint memory newChkPt = CheckPoint(intervalStart, totalStaked, noOfIntervals);
+            checkPtRecord.push(newChkPt);
+            // set params for new interval
+            intervalStart += noOfIntervals * rewardInterval;                            // works even if done a few hours/days after last interval
+        }
+    }
+
     /**
      * @notice Unstake (withdraw & claim) tokens. Allows partial unstake.
      * @param amountLP The amount of LP tokens (not ETB tokens) to unstake
      */
-    function unStake(uint amountLP) external {              // add reentrancy guard
+    function unStake(uint amountLP) external noReentry() {                                          // add reentrancy guard
         UserState memory usrState = stateOfUsers[msg.sender];
         UsrChkPt[] memory userRecord = usrState.userRecord;
-        UsrChkPt memory usrChkPtLatest = userRecord[userRecord.length - 1];
-        uint stakeAmount = usrChkPtLatest.totUsrStake;
+        uint stakeAmount = userRecord[userRecord.length - 1].totUsrStake;
 
         require(emissionStatus == EmissionStates.ERA_ACTIVE, "Staker#unstake: Emission Era not active"); // check emission status
         require(userRecord.length > 0, "Staker#unstake: Invalid claim. No stake record"); // check if staker
         require(stakeAmount > amountLP, "Staker#unstake: Request amount > balance");    // check if amount < staked amount
 
         // make sure intervals are up to date
-        if(block.timestamp > (intervalStart + rewardInterval)) {
-            // add the latest state of the last interval as a check point
-            uint noOfIntervals = (block.timestamp - intervalStart) / rewardInterval;    // no of intervals since last check point
-            CheckPoint memory newChkPt = CheckPoint(intervalStart, totalStaked, noOfIntervals);
-            checkPtRecord.push(newChkPt);
-
-            // set params for new interval
-            intervalStart += noOfIntervals * rewardInterval;                            // works even if done a few hours/days after last interval
-        }
+        _updateIntervals();
 
         // UPDATE MAIN CHECK POINT STATE
         totalStaked -= amountLP;
 
         uint endIdx = checkPtRecord.length - 1;                                         // index of latest completed interval
-        uint startIdxUsr = usrState.idxOfLastClaim_Usr;                                 // user's latest claim index
         uint accReward = usrState.latestRemainingReward;                                // could be > 0 if stake & unstake both in 1st interval
 
         // loop variables
         uint mainStart; uint mainEnd; uint usrStake; uint totStaked; uint noIntervals;
 
         // reward loop: loop over user checkpoints, use params for inner loop over main checkpoints
-        for(uint i = startIdxUsr + 1; i < userRecord.length; i++) {
+        for(uint i = (usrState.idxOfLastClaim_Usr + 1); i < userRecord.length; i++) {
             mainStart = userRecord[i - 1].mainChkPtIndex;                               // eg.: userRec[6] -> chkPtRec[45]
             mainEnd = userRecord.length > 1 ? userRecord[i].mainChkPtIndex : endIdx;    // eg.: userRec[7] -> chkPtRec[83]
 
@@ -200,11 +197,9 @@ contract Staker is Ownable {
         stateOfUsers[msg.sender].userRecord.push(usrChkPt);
 
         // transfer reward
-        bool result = ETBtoken.transfer(msg.sender, rewardAmount);
-        require(result, "Staker#unstake: ETB reward transfer failed");
+        require(ETBtoken.transfer(msg.sender, rewardAmount), "Staker#unstake: ETB reward transfer failed");
         // transfer stake LP tokens
-        bool txResult = LPtoken.transfer(msg.sender, amountLP);
-        require(txResult, "Staker#unstake: LP token transfer failed");
+        require(LPtoken.transfer(msg.sender, amountLP), "Staker#unstake: LP token transfer failed");
     }
 
 }
