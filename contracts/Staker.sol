@@ -22,7 +22,7 @@ contract Staker is Ownable {
     IERC20 public ETBtoken;
 
     enum EmissionStates { NOT_STARTED, INITIALIZED, ERA_ACTIVE, ERA_ENDED }
-    EmissionStates emissionStatus = EmissionStates.NOT_STARTED;
+    EmissionStates public emissionStatus = EmissionStates.NOT_STARTED;
 
     uint public rewardInterval = 24 hours; // reward calculations will not be per block but per interval
     uint public intervalReward;
@@ -46,7 +46,6 @@ contract Staker is Ownable {
     }
     struct UserState { 
         UsrChkPt[] userRecord;      // track record of all stake changes (stake & unstake)
-        uint idxOfLastClaim_ChkPt;  // index of main CheckPoint[] array where latest reward was calculated: prevents iterating from start every time
         uint idxOfLastClaim_Usr;    // index of user UsrChkPt[] array where latest reward was calculated: prevents iterating from start every time
         uint latestRemainingReward; // remainder of accumulated reward left if last claim was partial claim: prevents iterating from start every time
     }
@@ -54,6 +53,7 @@ contract Staker is Ownable {
 
     // EVENTS:
     event EmissionStarted(uint indexed startTime, uint endTime, uint releaseAmount);
+    event EmissionEnded(uint indexed startTime, uint endTime, uint tokensClaimed);
 
     // MODIFIERS:
     bool private entered = false;
@@ -102,18 +102,36 @@ contract Staker is Ownable {
         emissionStatus = EmissionStates.INITIALIZED;
     }
 
+    function getUserRecord(address user) external view returns(UsrChkPt[] memory) {
+        return (stateOfUsers[user].userRecord);
+    }
+
+    function getChkPtRecord() external view returns(CheckPoint[] memory) {
+        return (checkPtRecord);
+    }
+
     /**
      * @notice Stake (deposit) ETB LP tokens
-     * @param _LPamount The amount of LP tokens (not ETB tokens) to stake
+     * @param amountLP The amount of LP tokens (not ETB tokens) to stake
      */
-    function stake(uint _LPamount) external {
+    function stake(uint amountLP) external {
+        require(emissionStatus != EmissionStates.ERA_ENDED, "Staker#stake: Emission Era has ended. Please unstake & claim");
+
+        // Cannot use require(block.ts < endTime, "Blah blah... ") -> will never capture final main chk point updates
+        if(emissionStatus == EmissionStates.ERA_ACTIVE && block.timestamp >= endTime) {
+            _updateIntervals();                                                         // make sure last main chk point status is captured
+            emissionStatus = EmissionStates.ERA_ENDED;
+            emit EmissionEnded(startTime, endTime, tokensClaimed);
+            return;
+        }
         require(emissionStatus == EmissionStates.INITIALIZED || emissionStatus == EmissionStates.ERA_ACTIVE, "Staker#stake: Emission Era has not started");
-        bool txSuccess = LPtoken.transferFrom(msg.sender, address(this), _LPamount);
+        
+        bool txSuccess = LPtoken.transferFrom(msg.sender, address(this), amountLP);
         require(txSuccess, "Staker#stake: ETB token transfer failed");
 
         // 1st staker starts the emission process (prevents [reward / 0] later in logic)
         if(emissionStatus == EmissionStates.INITIALIZED) {
-            emissionStatus == EmissionStates.ERA_ACTIVE;
+            emissionStatus = EmissionStates.ERA_ACTIVE;
             startTime = block.timestamp;
             endTime = startTime + eraDuration;
             intervalStart = block.timestamp;
@@ -125,7 +143,7 @@ contract Staker is Ownable {
         _updateIntervals();
 
         // UPDATE MAIN CHECK POINT STATE
-        totalStaked += _LPamount;
+        totalStaked += amountLP;
 
         // USER STATE UPDATE
         uint idx = checkPtRecord.length > 0 ? checkPtRecord.length : 0;                 // index of current (incomplete) main check point. If completed chkPts = [0, 1] then current chkpt idx is 2
@@ -133,7 +151,7 @@ contract Staker is Ownable {
         UsrChkPt[] memory userRecord = stateOfUsers[msg.sender].userRecord;
         uint userStake = userRecord.length == 0 ? 0 : userRecord[userRecord.length - 1].totUsrStake; // get latest user stake total
 
-        UsrChkPt memory usrChkPt = UsrChkPt(idx, userStake + _LPamount);
+        UsrChkPt memory usrChkPt = UsrChkPt(idx, userStake + amountLP);
         stateOfUsers[msg.sender].userRecord.push(usrChkPt);
     }
 
@@ -152,17 +170,21 @@ contract Staker is Ownable {
      * @notice Unstake (withdraw & claim) tokens. Allows partial unstake.
      * @param amountLP The amount of LP tokens (not ETB tokens) to unstake
      */
-    function unStake(uint amountLP) external noReentry() {                                          // add reentrancy guard
+    function unStake(uint amountLP) external noReentry() {                              // add reentrancy guard
         UserState memory usrState = stateOfUsers[msg.sender];
         UsrChkPt[] memory userRecord = usrState.userRecord;
-        uint stakeAmount = userRecord[userRecord.length - 1].totUsrStake;
+        uint userStake = userRecord[userRecord.length - 1].totUsrStake;
 
-        require(emissionStatus == EmissionStates.ERA_ACTIVE, "Staker#unstake: Emission Era not active"); // check emission status
+        require(emissionStatus == EmissionStates.ERA_ACTIVE || emissionStatus == EmissionStates.ERA_ENDED, "Staker#unstake: Emission Era not active"); // check emission status
+        require(tokensClaimed <= releaseAmount, "Staker#unstake: All reward tokens have been claimed");
         require(userRecord.length > 0, "Staker#unstake: Invalid claim. No stake record"); // check if staker
-        require(stakeAmount > amountLP, "Staker#unstake: Request amount > balance");    // check if amount < staked amount
+        require(userStake > amountLP, "Staker#unstake: Request amount > balance");      // check if amount < staked amount
 
         // make sure intervals are up to date
         _updateIntervals();
+
+        // set emission status to ENDED if we've past the reward period
+        if(emissionStatus == EmissionStates.ERA_ACTIVE && block.timestamp >= endTime) emissionStatus == EmissionStates.ERA_ENDED;
 
         // UPDATE MAIN CHECK POINT STATE
         totalStaked -= amountLP;
@@ -190,11 +212,13 @@ contract Staker is Ownable {
 
         // USER STATE UPDATE
         stateOfUsers[msg.sender].idxOfLastClaim_Usr = userRecord.length - 1;
-        uint rewardAmount = accReward * amountLP / stakeAmount;
+        uint rewardAmount = accReward * amountLP / userStake;
         stateOfUsers[msg.sender].latestRemainingReward = accReward - rewardAmount;
         // push new user check point
-        UsrChkPt memory usrChkPt = UsrChkPt(endIdx, stakeAmount - amountLP);
+        UsrChkPt memory usrChkPt = UsrChkPt(endIdx, userStake - amountLP);
         stateOfUsers[msg.sender].userRecord.push(usrChkPt);
+
+        tokensClaimed += rewardAmount;
 
         // transfer reward
         require(ETBtoken.transfer(msg.sender, rewardAmount), "Staker#unstake: ETB reward transfer failed");
