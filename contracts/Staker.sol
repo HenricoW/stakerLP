@@ -46,7 +46,7 @@ contract Staker is Ownable {
     }
     struct UserState { 
         UsrChkPt[] userRecord;      // track record of all stake changes (stake & unstake)
-        uint idxOfLastClaim_Usr;    // index of user UsrChkPt[] array where latest reward was calculated: prevents iterating from start every time
+        uint usrIdxOfLastClaim;    // index of user UsrChkPt[] array where latest reward was calculated: prevents iterating from start every time
         uint latestRemainingReward; // remainder of accumulated reward left if last claim was partial claim: prevents iterating from start every time
     }
     mapping( address => UserState ) public stateOfUsers; // -> use this mapping to iterate over [checkPtRecord] to calc stake reward (and optionally update latest total stake reward)
@@ -171,14 +171,17 @@ contract Staker is Ownable {
      * @param amountLP The amount of LP tokens (not ETB tokens) to unstake
      */
     function unStake(uint amountLP) external noReentry() {                              // add reentrancy guard
+        require(emissionStatus == EmissionStates.ERA_ACTIVE || emissionStatus == EmissionStates.ERA_ENDED, "Staker#unstake: Emission Era not active"); // check emission status
+        
         UserState memory usrState = stateOfUsers[msg.sender];
         UsrChkPt[] memory userRecord = usrState.userRecord;
-        uint userStake = userRecord[userRecord.length - 1].totUsrStake;
-
-        require(emissionStatus == EmissionStates.ERA_ACTIVE || emissionStatus == EmissionStates.ERA_ENDED, "Staker#unstake: Emission Era not active"); // check emission status
-        require(tokensClaimed <= releaseAmount, "Staker#unstake: All reward tokens have been claimed");
         require(userRecord.length > 0, "Staker#unstake: Invalid claim. No stake record"); // check if staker
-        require(userStake > amountLP, "Staker#unstake: Request amount > balance");      // check if amount < staked amount
+        uint userStake = userRecord[userRecord.length - 1].totUsrStake;
+        require(userStake >= amountLP, "Staker#unstake: Request amount > balance");      // check if amount < staked amount
+
+        // Below is redundant, caught by [userStake > amountLP] check. If user has stake left, there will be reward left
+        // Will leave in either way
+        require(tokensClaimed <= releaseAmount, "Staker#unstake: All reward tokens have been claimed");
 
         // make sure intervals are up to date
         _updateIntervals();
@@ -189,18 +192,18 @@ contract Staker is Ownable {
         // UPDATE MAIN CHECK POINT STATE
         totalStaked -= amountLP;
 
-        uint endIdx = checkPtRecord.length - 1;                                         // index of latest completed interval
+        uint endIdx = checkPtRecord.length;                                             // index of current (incomplete) interval
         uint accReward = usrState.latestRemainingReward;                                // could be > 0 if stake & unstake both in 1st interval
 
         // loop variables
         uint mainStart; uint mainEnd; uint usrStake; uint totStaked; uint noIntervals;
 
         // reward loop: loop over user checkpoints, use params for inner loop over main checkpoints
-        for(uint i = (usrState.idxOfLastClaim_Usr + 1); i < userRecord.length; i++) {
-            mainStart = userRecord[i - 1].mainChkPtIndex;                               // eg.: userRec[6] -> chkPtRec[45]
-            mainEnd = userRecord.length > 1 ? userRecord[i].mainChkPtIndex : endIdx;    // eg.: userRec[7] -> chkPtRec[83]
+        for(uint i = usrState.usrIdxOfLastClaim; i < userRecord.length - 1; i++) {
+            mainStart = userRecord[i].mainChkPtIndex;                                   // eg.: userRec[6] -> chkPtRec[45]
+            mainEnd = userRecord.length > 1 ? userRecord[i + 1].mainChkPtIndex : endIdx; // eg.: userRec[7] -> chkPtRec[83]
 
-            usrStake = userRecord[i - 1].totUsrStake;
+            usrStake = userRecord[i].totUsrStake;
 
             for(uint j = mainStart; j < mainEnd; j++) {
                 totStaked = checkPtRecord[j].totalStaked;
@@ -211,7 +214,7 @@ contract Staker is Ownable {
         }
 
         // USER STATE UPDATE
-        stateOfUsers[msg.sender].idxOfLastClaim_Usr = userRecord.length - 1;
+        stateOfUsers[msg.sender].usrIdxOfLastClaim = userRecord.length - 1;
         uint rewardAmount = accReward * amountLP / userStake;
         stateOfUsers[msg.sender].latestRemainingReward = accReward - rewardAmount;
         // push new user check point
