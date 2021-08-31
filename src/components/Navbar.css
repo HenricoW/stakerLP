@@ -1,0 +1,31 @@
+@import "../styles/colors.css";
+
+header,
+.chain,
+.wallet {
+    display: flex;
+    align-items: center;
+}
+
+header {
+    justify-content: space-between;
+    height: 80px;
+}
+
+.logo {
+    cursor: pointer;
+    color: var(--color-primary);
+    font-weight: bold;
+}
+
+.chain {
+    gap: 2em;
+}
+
+.wallet {
+    gap: 1em;
+    padding: 8px 18px;
+    border: 2px solid var(--color-primary);
+    border-radius: 17px;
+    cursor: pointer;
+}
