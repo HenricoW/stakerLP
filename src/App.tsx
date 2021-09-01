@@ -14,6 +14,7 @@ import Staker_afct from "./artifacts/Staker.json";
 import LPetb_afct from "./artifacts/LPetb.json";
 import IERC20_afct from "./artifacts/IERC20.json";
 import { Contract } from "web3-eth-contract";
+import Modal from "./components/Modal";
 
 type artifact = {
     [key: string]: any;
@@ -102,8 +103,68 @@ function App() {
     const [web3, setWeb3] = useState<Web3type>(undefined);
     const [provider, setProvider] = useState<any>(undefined);
     const [contracts, setContracts] = useState<ContractType[]>([]);
+    const [modalShowing, setModalShowing] = useState(false);
+    const [lpBal, setLpBal] = useState("0");
+    const [stakeBal, setStakeBal] = useState("0");
+    const [ETBbal, setETBbal] = useState("0");
+
+    const balances = { lpBal, stakeBal, ETBbal };
+    const [stakerContr, mETBcontr, lpTkncontr] = contracts;
+
+    const getLPbalance = async () => {
+        if (lpTkncontr && address.length > 40) {
+            let bal;
+            try {
+                bal = await lpTkncontr.methods.balanceOf(address).call();
+                bal = bal ? web3?.utils.fromWei(bal) : "0";
+                bal && setLpBal(bal);
+            } catch (err) {
+                setLpBal("0");
+                console.log(err);
+            }
+        }
+    };
+
+    const getETBbalance = async () => {
+        if (mETBcontr && address.length > 40) {
+            let bal;
+            try {
+                bal = await mETBcontr.methods.balanceOf(address).call();
+                bal = bal ? web3?.utils.fromWei(bal) : "0";
+                bal && setETBbal(bal);
+            } catch (err) {
+                setETBbal("0");
+                console.log(err);
+            }
+        }
+    };
+
+    const getUserStake = async () => {
+        if (stakerContr && address.length > 40) {
+            let uRec;
+            try {
+                uRec = await stakerContr.methods.getUserRecord(address).call();
+                if (uRec.length < 1) return;
+                let uBal = web3?.utils.fromWei(uRec[uRec.length - 1].totUsrStake);
+                uBal && setStakeBal(uBal);
+            } catch (err) {
+                console.log(err);
+            }
+        }
+    };
+
+    const updateBalances = async () => {
+        await Promise.all([getLPbalance(), getETBbalance(), getUserStake()]);
+    };
 
     const getChainId = async () => (web3 ? await web3.eth.getChainId() : 0);
+
+    useEffect(() => {
+        setLpBal("0");
+        setStakeBal("0");
+        setETBbal("0");
+        updateBalances();
+    }, [address]);
 
     useEffect(() => {
         web3 &&
@@ -112,7 +173,6 @@ function App() {
                 .then((addrArray) => {
                     let addr = addrArray ? addrArray[0] : "";
                     setAddress(addr);
-                    console.log(addr);
                 })
                 .catch((err) => console.log(err));
 
@@ -133,16 +193,33 @@ function App() {
         init(web3);
     }, [web3, provider]);
 
+    const showModal = () => setModalShowing(true);
+    const hideModal = () => setModalShowing(false);
+
     return (
         <>
             <Navbar chainId={chainId} address={address} setWeb3={setWeb3} setProvider={setProvider} />
             <div className="main">
-                <div className="modal"></div>
                 <section className="container era-info"></section>
                 <section className="container admin-panel"></section>
-                <UserPanel address={address} contracts={contracts} web3={web3} />
+                <UserPanel
+                    address={address}
+                    contracts={contracts}
+                    web3={web3}
+                    showModal={showModal}
+                    balances={balances}
+                    updateBalances={updateBalances}
+                />
             </div>
             <Footer />
+            <Modal
+                visible={modalShowing}
+                address={address}
+                contracts={contracts}
+                web3={web3}
+                showModal={showModal}
+                hideModal={hideModal}
+            />
         </>
     );
 }

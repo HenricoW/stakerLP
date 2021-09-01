@@ -6,75 +6,17 @@ type UserPanelProps = {
     address: string;
     contracts: ContractType[];
     web3: Web3type;
+    showModal: () => void;
+    balances: {
+        lpBal: string;
+        stakeBal: string;
+        ETBbal: string;
+    };
+    updateBalances: () => Promise<void>;
 };
 
-function UserPanel({ address, contracts, web3 }: UserPanelProps) {
-    // user balances
-    const [lpBal, setLpBal] = useState("0.00");
-    const [ETBbal, setETBbal] = useState("0.00");
-    const [stakeBal, setStakeBal] = useState("0.00");
-
-    const [stakerContr, mETBcontr, lpTkncontr] = contracts;
-
-    const getLPbalance = async () => {
-        if (lpTkncontr && address.length > 40) {
-            let bal;
-            try {
-                bal = await lpTkncontr.methods.balanceOf(address).call();
-                bal = web3?.utils.fromWei(bal);
-                bal && setLpBal(bal);
-            } catch (err) {
-                setLpBal("0.00");
-                console.log(err);
-            }
-        }
-    };
-
-    const getETBbalance = async () => {
-        if (mETBcontr && address.length > 40) {
-            let bal;
-            try {
-                bal = await mETBcontr.methods.balanceOf(address).call();
-                bal = web3?.utils.fromWei(bal);
-                bal && setETBbal(bal);
-            } catch (err) {
-                setETBbal("0.00");
-                console.log(err);
-            }
-        }
-    };
-
-    const getUserStake = async () => {
-        if (stakerContr && address.length > 40) {
-            let uRec;
-            try {
-                uRec = await stakerContr.methods.getUserRecord(address).call();
-                let uBal = web3?.utils.fromWei(uRec[uRec.length - 1].totUsrStake);
-                console.log(uRec);
-                uBal && setStakeBal(uBal);
-            } catch (err) {
-                console.log(err);
-            }
-        }
-    };
-
-    const stakeLP = async (amount: number) => {
-        if (stakerContr && address.length > 40) {
-            let amt = web3?.utils.toWei(amount.toString());
-            try {
-                await stakerContr.methods.stake(amt).call();
-            } catch (err) {
-                console.log(err);
-            }
-        }
-    };
-
-    useEffect(() => {
-        getLPbalance();
-        getETBbalance();
-        getUserStake();
-    }, [address, contracts]);
-
+function UserPanel({ address, contracts, web3, showModal, balances, updateBalances }: UserPanelProps) {
+    updateBalances();
     return (
         <section className="container user-panel">
             <div className="card stats">
@@ -107,15 +49,17 @@ function UserPanel({ address, contracts, web3 }: UserPanelProps) {
                         <div className="stake-ctrl">
                             <div className="lp-staked">
                                 <h3>Your Stake</h3>
-                                <p>{stakeBal} ETB-BNB</p>
+                                <p>{balances.stakeBal} ETB-BNB</p>
                             </div>
                             <div className="lp-wallet">
                                 <h3>Your Wallet</h3>
-                                <p>{lpBal} ETB-BNB</p>
+                                <p>{balances.lpBal} ETB-BNB</p>
                             </div>
                             <div className="stake-btns">
                                 <h4 className="btn-sub">Unstake</h4>
-                                <h4 className="btn-add">Stake</h4>
+                                <h4 className="btn-add" onClick={showModal}>
+                                    Stake
+                                </h4>
                             </div>
                         </div>
                         <div className="reward-est">

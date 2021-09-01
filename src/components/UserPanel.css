@@ -60,5 +60,13 @@
 .card .stake-ctrl .stake-btns .btn-sub,
 .card .stake-ctrl .stake-btns .btn-add {
     border: 2px solid var(--color-primary);
+    border-radius: 0.5em;
     padding: 5px 15px 8px;
+    cursor: pointer;
+}
+
+.card .stake-ctrl .stake-btns .btn-sub:hover,
+.card .stake-ctrl .stake-btns .btn-add:hover {
+    background-color: var(--color-primary);
+    color: black;
 }
