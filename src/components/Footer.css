@@ -1,0 +1,9 @@
+@import "../styles/colors.css";
+
+footer {
+    text-align: center;
+    background: black;
+    height: 200px;
+    padding: 2em;
+    margin-top: 3em;
+}
