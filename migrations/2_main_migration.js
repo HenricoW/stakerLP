@@ -19,4 +19,20 @@ module.exports = async function (deployer, network, accounts) {
     const mintAmount = toWei("1000");
     await lpETB.faucet(mintAmount, { from: user1 });
     await lpETB.faucet(mintAmount, { from: user2 });
+
+    const durationInDays = 2;
+    const releaseAmount = toWei("240");
+    const rewIntervalHrs = 1;
+
+    await mETB.approve(staker.address, releaseAmount, { from: admin });
+    await staker.createEra(durationInDays, releaseAmount, rewIntervalHrs, { from: admin });
+
+    const amountLP = "180";
+    // allow stake when INITIALIZED
+    await lpETB.approve(staker.address, toWei(amountLP), { from: user1 });
+    await staker.stake(toWei(amountLP), { from: user1 });
+
+    // allow stake when ERA_ACTIVE
+    await lpETB.approve(staker.address, toWei(amountLP), { from: user1 });
+    await staker.stake(toWei(amountLP), { from: user1 });
 };
