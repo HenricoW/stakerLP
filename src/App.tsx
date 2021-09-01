@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 import Footer from "./components/Footer";
 import Navbar from "./components/Navbar";
@@ -13,6 +13,7 @@ import MockETB_afct from "./artifacts/MockETB.json";
 import Staker_afct from "./artifacts/Staker.json";
 import LPetb_afct from "./artifacts/LPetb.json";
 import IERC20_afct from "./artifacts/IERC20.json";
+import { Contract } from "web3-eth-contract";
 
 type artifact = {
     [key: string]: any;
@@ -37,14 +38,21 @@ const providerOptions = {
     torus: { package: Torus },
 };
 
-export type web3type = Web3 | undefined;
+export type Web3type = Web3 | undefined;
+export type ContractType = Contract | null;
 
 export const getWeb3 = async () => {
     const web3modal = new Web3Modal({
         providerOptions,
     });
-    const _provider = await web3modal.connect();
-    const _web3 = new Web3(_provider);
+    let _provider = undefined,
+        _web3: Web3type;
+    try {
+        _provider = await web3modal.connect();
+        _web3 = new Web3(_provider);
+    } catch (err) {
+        console.log(err);
+    }
 
     return { _web3, _provider };
 };
@@ -91,32 +99,39 @@ export const chainData = new Map<number, string>([
 function App() {
     const [address, setAddress] = useState("");
     const [chainId, setChainId] = useState<number>(0);
-    const [web3, setWeb3] = useState<web3type>(undefined);
+    const [web3, setWeb3] = useState<Web3type>(undefined);
     const [provider, setProvider] = useState<any>(undefined);
+    const [contracts, setContracts] = useState<ContractType[]>([]);
 
     const getChainId = async () => (web3 ? await web3.eth.getChainId() : 0);
-    // const getW3Contr = async () => (web3 ? await getContracts(web3) : [null, null, null]);
 
-    if (web3) {
-        let addr = "";
-        web3.eth
-            .getAccounts()
-            .then((addrArray) => {
-                addr = addrArray[0];
-                setAddress(addr);
-                console.log(addr);
-            })
-            .catch((err) => console.log(err));
-    }
+    useEffect(() => {
+        web3 &&
+            web3.eth
+                .getAccounts()
+                .then((addrArray) => {
+                    let addr = addrArray ? addrArray[0] : "";
+                    setAddress(addr);
+                    console.log(addr);
+                })
+                .catch((err) => console.log(err));
 
-    if (provider) {
         getChainId()
             .then((id) => setChainId(id))
             .catch((err) => console.log(err));
 
-        provider.on("accountsChanged", (accounts: string[]) => setAddress(accounts[0]));
-        provider.on("chainChanged", (chainId: number) => setChainId(chainId));
-    }
+        if (provider) {
+            provider.on("accountsChanged", (accounts: string[]) => setAddress(accounts[0]));
+            provider.on("chainChanged", (chainId: number) => setChainId(chainId));
+        }
+
+        const init = async (_w3: Web3type) => {
+            const ctxs = _w3 ? await getContracts(_w3) : [];
+            ctxs.length > 0 && setContracts(ctxs);
+        };
+
+        init(web3);
+    }, [web3, provider]);
 
     return (
         <>
@@ -125,7 +140,7 @@ function App() {
                 <div className="modal"></div>
                 <section className="container era-info"></section>
                 <section className="container admin-panel"></section>
-                <UserPanel />
+                <UserPanel address={address} contracts={contracts} web3={web3} />
             </div>
             <Footer />
         </>
