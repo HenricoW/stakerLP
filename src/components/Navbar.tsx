@@ -1,11 +1,11 @@
 import "./Navbar.css";
 
-import { getWeb3, web3type, chainData } from "../App";
+import { getWeb3, Web3type, chainData } from "../App";
 
 type NavbarProps = {
     chainId: number;
     address: string;
-    setWeb3: React.Dispatch<React.SetStateAction<web3type>>;
+    setWeb3: React.Dispatch<React.SetStateAction<Web3type>>;
     setProvider: React.Dispatch<React.SetStateAction<undefined>>;
     // disconnect: () => void;
 };
@@ -20,8 +20,6 @@ function Navbar({ chainId, address, setWeb3, setProvider }: NavbarProps) {
         setWeb3(_web3);
         setProvider(_provider);
     };
-
-    console.log(chainData.get(chainId));
 
     return (
         <header className="container">
