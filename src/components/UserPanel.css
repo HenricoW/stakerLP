@@ -1,0 +1,58 @@
+@import "../styles/colors.css";
+
+.user-panel {
+    padding: 1em 0;
+    width: 60%;
+    max-width: 900px;
+    margin: 3em auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2em;
+}
+
+.card {
+    background-color: var(--color-card);
+    padding: 2em;
+    border-radius: 1em;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 0.5em;
+}
+
+.card h3 {
+    font-size: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+.card .estimate-val {
+    margin-top: 1em;
+}
+
+.card .links .card-link {
+    display: block;
+    color: var(--color-primary);
+    font-weight: bold;
+}
+.card .links .card-link .link-icon {
+    display: inline-block;
+    width: 15px;
+    color: inherit;
+    margin: 10px 0 0 5px;
+    color: var(--color-primary);
+}
+
+.card .stake-ctrl .stake-btns {
+    margin-top: 1em;
+    display: flex;
+    gap: 1em;
+    justify-content: center;
+    align-items: center;
+}
+
+.card .stake-ctrl .stake-btns .btn-sub,
+.card .stake-ctrl .stake-btns .btn-add {
+    border: 2px solid var(--color-primary);
+    padding: 5px 15px 8px;
+}
