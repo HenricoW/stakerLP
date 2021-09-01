@@ -17,13 +17,12 @@
     text-align: center;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
-    gap: 0.5em;
+    justify-content: center;
+    gap: 0.8em;
 }
 
 .card h3 {
     font-size: 1.5em;
-    margin-bottom: 0.5em;
 }
 
 .card .estimate-val {
@@ -41,6 +40,13 @@
     color: inherit;
     margin: 10px 0 0 5px;
     color: var(--color-primary);
+}
+
+.card .stake-ctrl .lp-staked,
+.card .stake-ctrl .lp-wallet {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .card .stake-ctrl .stake-btns {
