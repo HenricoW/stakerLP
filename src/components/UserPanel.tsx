@@ -3,6 +3,11 @@ import { ContractType, Web3type } from "../App";
 import Modal from "./Modal";
 import "./UserPanel.css";
 
+type UsrChkPt = {
+    mainChkPtIndex: string; // index of main CheckPoint[] array where change happened
+    totUsrStake: string; // cumulative user stake as at this check point
+};
+
 type UserPanelProps = {
     address: string;
     contracts: ContractType[];
@@ -14,14 +19,22 @@ type UserPanelProps = {
     };
     updateBalances: () => Promise<void>;
     usrActIdx: number;
-    userRec: any[];
+    userRec: UsrChkPt[];
     // getLastActTime: () => Promise<void>;
 };
 
-const txStatusMssgs: { [key: string]: string } = {
-    pending: "Please follow your wallet prompts",
-    success: "Transaction successful!",
-    failed: "Transaction failed",
+type ModalTypes = "stake" | "unstake";
+
+type UserState = {
+    userRecord: string[];
+    usrIdxOfLastClaim: string;
+    latestRemainingReward: string;
+};
+
+type CheckPoint = {
+    blocktime: string; // block time at START of new reward interval
+    totalStaked: string; // cumulative stake as at this reward interval
+    intervalsToNext: string; // number of intervals to the next check point: in case of long periods of inactivity
 };
 
 const modalTitles: { [key: string]: string } = {
@@ -33,10 +46,14 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
     const [stakeVal, setStakeVal] = useState("0");
     const [errorMssg, setErrorMssg] = useState("");
     const [txStatus, setTxStatus] = useState<"not sent" | "pending" | "success" | "failed">("not sent");
-    const [chkPtRecord, setChkPtRecord] = useState<string[][]>();
+    const [chkPtRecord, setChkPtRecord] = useState<CheckPoint[]>();
+    const [userState, setUserState] = useState<UserState>();
+    const [intReward, setIntReward] = useState<string>("0");
     const [intervStart, setIntervStart] = useState("0");
+    const [estReward, setEstReward] = useState("0");
     const [modalShowing, setModalShowing] = useState(false);
     const [modalTitle, setModalTitle] = useState("Stake your LP");
+    const [modalType, setModalType] = useState<ModalTypes>("stake");
 
     const [stakerContr, _, lpTkncontr] = contracts;
 
@@ -67,6 +84,23 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
         }
     };
 
+    const unStakeLP = async (amount: number) => {
+        if (stakerContr && lpTkncontr && address.length > 40) {
+            let amt = web3?.utils.toWei(amount.toString());
+
+            stakerContr.methods
+                .unStake(amt)
+                .send({ from: address })
+                .on("receipt", (receipt: any) => {
+                    setTxStatus("success");
+                })
+                .on("error", (error: any) => {
+                    setTxStatus("failed");
+                    console.log(error);
+                });
+        }
+    };
+
     const submitStake = async () => {
         const valf = parseFloat(stakeVal);
         if (Number.isNaN(valf)) {
@@ -76,7 +110,9 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
         if (valf === 0) return;
 
         setTxStatus("pending");
-        await stakeLP(valf);
+        if (modalType === "unstake") await unStakeLP(valf);
+        else await stakeLP(valf);
+
         await updateBalances();
     };
 
@@ -87,7 +123,8 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
             try {
                 console.log("staker ctrx: ", contracts[0]);
                 const cpRec = await contracts[0].methods.getChkPtRecord().call();
-                console.log(cpRec);
+                // console.log(userRec);
+                // console.log(cpRec);
                 if (cpRec.length < 1) return;
                 setChkPtRecord(cpRec);
             } catch (err) {
@@ -96,17 +133,53 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
         }
     };
 
-    // const calcRewEstimate = () => {
-    //     console.log(userRec);
-    //     console.log(chkPtRecord);
-    // };
+    const getUserState = async () => {
+        console.log("getting chkpts");
+        if (contracts[0]) {
+            try {
+                console.log("staker ctrx: ", contracts[0]);
+                const uState = await contracts[0].methods.stateOfUsers(address).call();
+                const intRew = await contracts[0].methods.intervalReward().call();
+                console.log(uState);
+                setUserState(uState);
+                setIntReward(intRew);
+            } catch (err) {
+                console.log(err);
+            }
+        }
+    };
+
+    const calcRewEstimate = async () => {
+        const uState: UserState = await contracts[0]?.methods.stateOfUsers(address).call();
+        const intRew: string = await contracts[0]?.methods.intervalReward().call();
+
+        const endIdx = chkPtRecord ? chkPtRecord.length : 0;
+        let accReward = uState?.latestRemainingReward ? +uState?.latestRemainingReward : 0;
+        const loopStart = +uState?.usrIdxOfLastClaim;
+
+        if (chkPtRecord) {
+            console.log("In double loops");
+            for (let i = loopStart; i < userRec.length - 1; i++) {
+                let mainStart = +userRec[i].mainChkPtIndex; // eg.: userRec[6] -> chkPtRec[45]
+                let mainEnd = userRec.length > 1 ? +userRec[i + 1].mainChkPtIndex : endIdx; // eg.: userRec[7] -> chkPtRec[83]
+                let usrStake = +userRec[i].totUsrStake;
+
+                for (let j = mainStart; j < mainEnd; j++) {
+                    accReward += +intRew * (usrStake / +chkPtRecord[j].totalStaked) * +chkPtRecord[j].intervalsToNext;
+                }
+            }
+
+            const rewVal = web3?.utils.fromWei(accReward.toString());
+            if (rewVal) setEstReward(parseFloat(rewVal).toFixed(3));
+        }
+    };
 
     console.log("in u panel");
 
     useEffect(() => {
         const init = async () => {
             await getCheckPts();
-            // calcRewEstimate();
+            await calcRewEstimate();
         };
 
         updateBalances();
@@ -123,20 +196,20 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
         setTxStatus("not sent");
     };
 
-    const showModal = (type: string) => {
+    const showModal = (type: ModalTypes) => {
         setModalTitle(modalTitles[type]);
+        setModalType(type);
         setModalShowing(true);
     };
     const hideModal = () => setModalShowing(false);
 
     const modalBody = () => {
-        return txStatus === "not sent" ? (
+        return (
             <div className="modal-body">
                 <input
                     type="number"
                     name="stake-val"
                     id="stake-val"
-                    // pattern="\d+\.?\d+"
                     value={stakeVal}
                     onChange={(e) => {
                         setStakeVal(e.target.value);
@@ -149,19 +222,17 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
                         Close
                     </div>
                     <div className="modal-btn" onClick={submitStake}>
-                        Submit
+                        {modalType}
                     </div>
                 </div>
             </div>
-        ) : (
-            <div className="modal-body tx-message">{txStatusMssgs[txStatus]}</div>
         );
     };
 
     return (
         <section className="container user-panel">
             {modalShowing ? (
-                <Modal modalTitle={modalTitle} resetModal={resetModal}>
+                <Modal modalTitle={modalTitle} txStatus={txStatus} resetModal={resetModal}>
                     {modalBody()}
                 </Modal>
             ) : null}
@@ -201,7 +272,7 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
                             <p>{balances.lpBal} ETB-BNB</p>
                         </div>
                         <div className="stake-btns">
-                            <h4 className="btn-sub" onClick={() => {}}>
+                            <h4 className="btn-sub" onClick={() => showModal("unstake")}>
                                 Unstake
                             </h4>
                             <h4 className="btn-add" onClick={() => showModal("stake")}>
@@ -209,16 +280,16 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
                             </h4>
                         </div>
                         <div className="last-action">
-                            <h3>Last action</h3>
+                            <h3>Your last Checkpoint</h3>
                             <p>
-                                {chkPtRecord
-                                    ? new Date((+chkPtRecord[usrActIdx - 1][0] + 3600) * 1000).toLocaleString() // 1 hr after closed check point
+                                {chkPtRecord && chkPtRecord[usrActIdx - 1]
+                                    ? new Date((+chkPtRecord[usrActIdx - 1].blocktime + 3600) * 1000).toLocaleString() // 1 hr after closed check point
                                     : "Checkpoint still open"}
                             </p>
                         </div>
                         <div className="estimate-val">
                             <h3>Reward Estimate</h3>
-                            <p>34.37 ETB</p>
+                            <p>{estReward} ETB</p>
                         </div>
                     </>
                 ) : (
