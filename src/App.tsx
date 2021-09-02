@@ -14,7 +14,6 @@ import Staker_afct from "./artifacts/Staker.json";
 import LPetb_afct from "./artifacts/LPetb.json";
 import IERC20_afct from "./artifacts/IERC20.json";
 import { Contract } from "web3-eth-contract";
-import Modal from "./components/Modal";
 
 type artifact = {
     [key: string]: any;
@@ -103,9 +102,10 @@ function App() {
     const [web3, setWeb3] = useState<Web3type>(undefined);
     const [provider, setProvider] = useState<any>(undefined);
     const [contracts, setContracts] = useState<ContractType[]>([]);
-    const [modalShowing, setModalShowing] = useState(false);
-    const [lpBal, setLpBal] = useState("0");
+    const [userRec, setUserRec] = useState<any[]>([]);
+    const [usrActIdx, setUsrActIdx] = useState(0);
     const [stakeBal, setStakeBal] = useState("0");
+    const [lpBal, setLpBal] = useState("0");
     const [ETBbal, setETBbal] = useState("0");
 
     const balances = { lpBal, stakeBal, ETBbal };
@@ -145,7 +145,10 @@ function App() {
             try {
                 uRec = await stakerContr.methods.getUserRecord(address).call();
                 if (uRec.length < 1) return;
+                setUserRec(uRec);
                 let uBal = web3?.utils.fromWei(uRec[uRec.length - 1].totUsrStake);
+                let lastActIdx: number = +uRec[uRec.length - 1].mainChkPtIndex;
+                setUsrActIdx(lastActIdx);
                 uBal && setStakeBal(uBal);
             } catch (err) {
                 console.log(err);
@@ -163,7 +166,7 @@ function App() {
         setLpBal("0");
         setStakeBal("0");
         setETBbal("0");
-        updateBalances();
+        web3 && updateBalances();
     }, [address]);
 
     useEffect(() => {
@@ -186,6 +189,7 @@ function App() {
         }
 
         const init = async (_w3: Web3type) => {
+            console.log("getting contrx");
             const ctxs = _w3 ? await getContracts(_w3) : [];
             ctxs.length > 0 && setContracts(ctxs);
         };
@@ -193,8 +197,7 @@ function App() {
         init(web3);
     }, [web3, provider]);
 
-    const showModal = () => setModalShowing(true);
-    const hideModal = () => setModalShowing(false);
+    console.log("in app");
 
     return (
         <>
@@ -206,20 +209,13 @@ function App() {
                     address={address}
                     contracts={contracts}
                     web3={web3}
-                    showModal={showModal}
                     balances={balances}
                     updateBalances={updateBalances}
+                    usrActIdx={usrActIdx}
+                    userRec={userRec}
                 />
             </div>
             <Footer />
-            <Modal
-                visible={modalShowing}
-                address={address}
-                contracts={contracts}
-                web3={web3}
-                showModal={showModal}
-                hideModal={hideModal}
-            />
         </>
     );
 }
