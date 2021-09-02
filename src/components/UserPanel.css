@@ -21,14 +21,6 @@
     gap: 0.8em;
 }
 
-.card h3 {
-    font-size: 1.5em;
-}
-
-.card .estimate-val {
-    margin-top: 1em;
-}
-
 .card .links .card-link {
     display: block;
     color: var(--color-primary);
@@ -42,31 +34,34 @@
     color: var(--color-primary);
 }
 
-.card .stake-ctrl .lp-staked,
-.card .stake-ctrl .lp-wallet {
+.card .lp-staked,
+.card .lp-wallet,
+.card .last-action,
+.card .estimate-val {
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
 
-.card .stake-ctrl .stake-btns {
-    margin-top: 1em;
+.card .stake-btns {
+    padding: 1em 0;
     display: flex;
     gap: 1em;
     justify-content: center;
     align-items: center;
 }
 
-.card .stake-ctrl .stake-btns .btn-sub,
-.card .stake-ctrl .stake-btns .btn-add {
+.card .stake-btns .btn-sub,
+.card .stake-btns .btn-add {
+    text-transform: uppercase;
     border: 2px solid var(--color-primary);
     border-radius: 0.5em;
     padding: 5px 15px 8px;
     cursor: pointer;
 }
 
-.card .stake-ctrl .stake-btns .btn-sub:hover,
-.card .stake-ctrl .stake-btns .btn-add:hover {
+.card .stake-btns .btn-sub:hover,
+.card .stake-btns .btn-add:hover {
     background-color: var(--color-primary);
     color: black;
 }
