@@ -47,9 +47,6 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
     const [errorMssg, setErrorMssg] = useState("");
     const [txStatus, setTxStatus] = useState<"not sent" | "pending" | "success" | "failed">("not sent");
     const [chkPtRecord, setChkPtRecord] = useState<CheckPoint[]>();
-    const [userState, setUserState] = useState<UserState>();
-    const [intReward, setIntReward] = useState<string>("0");
-    const [intervStart, setIntervStart] = useState("0");
     const [estReward, setEstReward] = useState("0");
     const [modalShowing, setModalShowing] = useState(false);
     const [modalTitle, setModalTitle] = useState("Stake your LP");
@@ -114,6 +111,8 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
         else await stakeLP(valf);
 
         await updateBalances();
+        await getCheckPts();
+        await calcRewEstimate();
     };
 
     const getCheckPts = async () => {
@@ -127,22 +126,6 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
                 // console.log(cpRec);
                 if (cpRec.length < 1) return;
                 setChkPtRecord(cpRec);
-            } catch (err) {
-                console.log(err);
-            }
-        }
-    };
-
-    const getUserState = async () => {
-        console.log("getting chkpts");
-        if (contracts[0]) {
-            try {
-                console.log("staker ctrx: ", contracts[0]);
-                const uState = await contracts[0].methods.stateOfUsers(address).call();
-                const intRew = await contracts[0].methods.intervalReward().call();
-                console.log(uState);
-                setUserState(uState);
-                setIntReward(intRew);
             } catch (err) {
                 console.log(err);
             }
