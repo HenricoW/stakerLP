@@ -112,18 +112,15 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
 
         await updateBalances();
         await getCheckPts();
-        await calcRewEstimate();
+        // await calcRewEstimate();
     };
 
     const getCheckPts = async () => {
         console.log("getting chkpts");
         if (contracts[0]) {
-            // let cpRec: string[][];
             try {
                 console.log("staker ctrx: ", contracts[0]);
                 const cpRec = await contracts[0].methods.getChkPtRecord().call();
-                // console.log(userRec);
-                // console.log(cpRec);
                 if (cpRec.length < 1) return;
                 setChkPtRecord(cpRec);
             } catch (err) {
@@ -141,14 +138,23 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
         const loopStart = +uState?.usrIdxOfLastClaim;
 
         if (chkPtRecord) {
+            let mainEnd: number = 0;
+            let usrStake: number = 0;
             console.log("In double loops");
             for (let i = loopStart; i < userRec.length - 1; i++) {
                 let mainStart = +userRec[i].mainChkPtIndex; // eg.: userRec[6] -> chkPtRec[45]
-                let mainEnd = userRec.length > 1 ? +userRec[i + 1].mainChkPtIndex : endIdx; // eg.: userRec[7] -> chkPtRec[83]
-                let usrStake = +userRec[i].totUsrStake;
+                mainEnd = userRec.length > 1 ? +userRec[i + 1].mainChkPtIndex : endIdx; // eg.: userRec[7] -> chkPtRec[83]
+                usrStake = +userRec[i].totUsrStake;
 
+                mainEnd = mainEnd > chkPtRecord.length ? chkPtRecord.length : mainEnd;
                 for (let j = mainStart; j < mainEnd; j++) {
                     accReward += +intRew * (usrStake / +chkPtRecord[j].totalStaked) * +chkPtRecord[j].intervalsToNext;
+                }
+            }
+
+            if (endIdx > mainEnd) {
+                for (let k = mainEnd; k < endIdx; k++) {
+                    accReward += +intRew * (usrStake / +chkPtRecord[k].totalStaked) * +chkPtRecord[k].intervalsToNext;
                 }
             }
 
@@ -266,7 +272,7 @@ function UserPanel({ address, contracts, web3, balances, updateBalances, usrActI
                             <h3>Your last Checkpoint</h3>
                             <p>
                                 {chkPtRecord && chkPtRecord[usrActIdx - 1]
-                                    ? new Date((+chkPtRecord[usrActIdx - 1].blocktime + 3600) * 1000).toLocaleString() // 1 hr after closed check point
+                                    ? new Date(+chkPtRecord[usrActIdx - 1].blocktime * 1000).toLocaleString()
                                     : "Checkpoint still open"}
                             </p>
                         </div>
