@@ -91,6 +91,9 @@ contract Staker is Ownable {
             rewardInterval = rewardInterval_hours * 1 hours;                            // if rewardInterval_hours = 0, then it remains on the default value of 24 hrs
         }
 
+        // FOR TESTING
+        rewardInterval /= 10;
+
         bool txSuccess = RewToken.transferFrom(msg.sender, address(this), _releaseAmount);
         require(txSuccess, "Staker#createEra: ETB token transfer failed");
 
