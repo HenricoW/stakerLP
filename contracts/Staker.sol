@@ -94,30 +94,14 @@ contract Staker is Ownable {
         // FOR TESTING
         rewardInterval /= 10;
 
-        bool txSuccess = RewToken.transferFrom(msg.sender, address(this), _releaseAmount);
-        require(txSuccess, "Staker#createEra: ETB token transfer failed");
-
         eraDuration = _durationInDays *  1 days;
         releaseAmount = _releaseAmount;
         uint noOfIntervals = eraDuration / rewardInterval;
         intervalReward = releaseAmount / noOfIntervals;
 
         emissionStatus = EmissionStates.INITIALIZED;
-    }
 
-    /**
-     * @notice Get a user's record array
-     * @param user The user who's record is to be fetched. Returns [] if user not found
-     */
-    function getUserRecord(address user) external view returns(UsrChkPt[] memory) {
-        return (stateOfUsers[user].userRecord);
-    }
-
-    /**
-     * @notice Gets the latest array of committed main check points
-     */
-    function getChkPtRecord() external view returns(CheckPoint[] memory) {
-        return (checkPtRecord);
+        require(RewToken.transferFrom(msg.sender, address(this), _releaseAmount));
     }
 
     /**
@@ -125,19 +109,14 @@ contract Staker is Ownable {
      * @param amountLP The amount of LP tokens (not ETB tokens) to stake
      */
     function stake(uint amountLP) external {
-        require(emissionStatus != EmissionStates.ERA_ENDED, "Staker#stake: Emission Era has ended. Please unstake & claim");
+        require(emissionStatus == EmissionStates.ERA_ACTIVE || emissionStatus == EmissionStates.INITIALIZED, "Staker#stake: Wrong Emission Era");
 
-        // Cannot use require(block.ts < endTime, "Blah blah... ") -> will never capture final main chk point updates
         if(block.timestamp >= endTime && emissionStatus == EmissionStates.ERA_ACTIVE) {
             _updateIntervals();                                                         // make sure last main chk point status is captured
             emissionStatus = EmissionStates.ERA_ENDED;
             emit EmissionEnded(startTime, endTime, tokensClaimed);
             return;
         }
-        require(emissionStatus == EmissionStates.ERA_ACTIVE || emissionStatus == EmissionStates.INITIALIZED, "Staker#stake: Emission Era has not started");
-        
-        bool txSuccess = LPtoken.transferFrom(msg.sender, address(this), amountLP);
-        require(txSuccess, "Staker#stake: ETB token transfer failed");
 
         // 1st staker starts the emission process (prevents [reward / 0] later in logic)
         if(emissionStatus == EmissionStates.INITIALIZED) {
@@ -156,13 +135,15 @@ contract Staker is Ownable {
         totalStaked += amountLP;
 
         // USER STATE UPDATE
-        uint idx = checkPtRecord.length > 0 ? checkPtRecord.length : 0;                 // index of current (incomplete) main check point. If completed chkPts = [0, 1] then current chkpt idx is 2
+        uint currentMainIdx = checkPtRecord.length;                 // index of current (incomplete) main check point. If completed chkPts = [0, 1] then current chkpt currentMainIdx is 2
         
         UsrChkPt[] memory userRecord = stateOfUsers[msg.sender].userRecord;
         uint userStake = userRecord.length == 0 ? 0 : userRecord[userRecord.length - 1].totUsrStake; // get latest user stake total
 
-        UsrChkPt memory usrChkPt = UsrChkPt(idx, userStake + amountLP);
+        UsrChkPt memory usrChkPt = UsrChkPt(currentMainIdx, userStake + amountLP);
         stateOfUsers[msg.sender].userRecord.push(usrChkPt);
+        
+        require(LPtoken.transferFrom(msg.sender, address(this), amountLP));
     }
 
     function _updateIntervals() internal {
@@ -220,11 +201,11 @@ contract Staker is Ownable {
         }
 
         // USER STATE UPDATE
-        stateOfUsers[msg.sender].usrIdxOfLastClaim = userRecord.length - 1;
         uint rewardAmount = accReward * amountLP / userStake;
         stateOfUsers[msg.sender].latestRemainingReward = accReward - rewardAmount;
         // push new user check point
         stateOfUsers[msg.sender].userRecord.push(UsrChkPt(endIdx, userStake - amountLP));
+        stateOfUsers[msg.sender].usrIdxOfLastClaim = stateOfUsers[msg.sender].userRecord.length - 1;
 
         tokensClaimed += rewardAmount;
 
@@ -232,6 +213,21 @@ contract Staker is Ownable {
         require(RewToken.transfer(msg.sender, rewardAmount), "Staker#unstake: ETB reward transfer failed");
         // transfer stake LP tokens
         require(LPtoken.transfer(msg.sender, amountLP), "Staker#unstake: LP token transfer failed");
+    }
+
+    /**
+     * @notice Get a user's record array
+     * @param user The user who's record is to be fetched. Returns [] if user not found
+     */
+    function getUserRecord(address user) external view returns(UsrChkPt[] memory) {
+        return (stateOfUsers[user].userRecord);
+    }
+
+    /**
+     * @notice Gets the latest array of committed main check points
+     */
+    function getChkPtRecord() external view returns(CheckPoint[] memory) {
+        return (checkPtRecord);
     }
 
 }
